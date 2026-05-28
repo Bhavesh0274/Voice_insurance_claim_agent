@@ -4,11 +4,11 @@ ClaimSaathi — Voice Insurance Claim Agent (Streamlit)
 A deployable web app: customer speaks → ASR (Sarvam) → LLM intake (Groq)
 → TTS (Sarvam) → spoken reply, while a structured claim record fills up
 and risky claims get flagged for human review.
-
+ 
 Run locally:   streamlit run app.py
 Deploy:        push to GitHub → share.streamlit.io  (see README)
 """
-
+ 
 import os
 import io
 import json
@@ -16,7 +16,7 @@ import time
 import base64
 import requests
 import streamlit as st
-
+ 
 # ---------------------------------------------------------------------------
 # Config & secrets
 # ---------------------------------------------------------------------------
@@ -29,14 +29,14 @@ def get_secret(name: str) -> str:
     except Exception:
         pass
     return os.environ.get(name, "")
-
+ 
 GROQ_API_KEY = get_secret("GROQ_API_KEY")
 SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
-
+ 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 SARVAM_TTS_MODEL = "bulbul:v2"
 SARVAM_VOICE = "anushka"
-
+ 
 # ---------------------------------------------------------------------------
 # Claim schema, mock policy DB, escalation rules
 # ---------------------------------------------------------------------------
@@ -50,21 +50,21 @@ REQUIRED_FIELDS = {
     "estimated_loss":    "rough estimated loss amount (if known)",
     "injuries_reported": "whether anyone was injured (yes/no)",
 }
-
+ 
 VALID_POLICIES = {
     "POL123456": {"holder": "Rahul Sharma",   "type": "motor",  "active": True},
     "POL789012": {"holder": "Anita Deshmukh",  "type": "health", "active": True},
     "POL000000": {"holder": "Expired User",    "type": "motor",  "active": False},
 }
 HIGH_LOSS_THRESHOLD = 500000  # ₹5 lakh
-
+ 
 FIELD_LABELS = {
     "policy_number": "Policy Number", "claimant_name": "Claimant Name",
     "incident_type": "Incident Type", "incident_date": "Incident Date",
     "incident_location": "Location", "description": "Description",
     "estimated_loss": "Estimated Loss", "injuries_reported": "Injuries?",
 }
-
+ 
 # ---------------------------------------------------------------------------
 # Pipeline stages
 # ---------------------------------------------------------------------------
@@ -78,28 +78,28 @@ def transcribe(audio_bytes: bytes, filename="input.wav") -> str:
                       data=data, files=files_, timeout=300)
     r.raise_for_status()
     return r.json().get("transcript", "")
-
-
+ 
+ 
 INTAKE_SYSTEM = """You are ClaimSaathi, a calm, empathetic insurance claims intake agent for Indian customers reporting an incident (First Notice of Loss).
-
+ 
 The caller may speak in Hindi, English, or a mix (Hinglish). Reply in the SAME language they use, kept short and spoken-friendly (1-3 sentences) since your reply is read aloud.
-
+ 
 Your job: collect these claim fields, ONE question at a time, conversationally:
 {fields}
-
+ 
 Rules:
 - Ask only for fields still missing. Do not re-ask fields already filled.
 - Be warm and reassuring; the caller may be stressed.
 - Never invent claim details. Only record what the caller actually says.
 - If the caller asks what is left, clearly tell them which details are still needed.
 - When ALL required fields are collected, set "complete": true and give a brief spoken confirmation summary.
-
+ 
 You MUST respond with ONLY a valid JSON object (no markdown) in this exact shape:
 {{"spoken_reply": "<what to say next, in the caller's language>",
   "claim_data": {{<only fields you could fill or update this turn>}},
   "complete": <true or false>}}"""
-
-
+ 
+ 
 def llm_intake(user_text: str, claim_state: dict, history: list) -> dict:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set.")
@@ -121,8 +121,8 @@ def llm_intake(user_text: str, claim_state: dict, history: list) -> dict:
     except json.JSONDecodeError:
         cleaned = raw.replace("```json", "").replace("```", "").strip()
         return json.loads(cleaned)
-
-
+ 
+ 
 def check_escalation(claim: dict) -> dict:
     reasons = []
     pol = claim.get("policy_number")
@@ -142,8 +142,8 @@ def check_escalation(claim: dict) -> dict:
     except Exception:
         pass
     return {"escalate": bool(reasons), "reasons": reasons}
-
-
+ 
+ 
 def synthesize(text: str, language_code="hi-IN") -> bytes:
     if not SARVAM_API_KEY:
         raise RuntimeError("SARVAM_API_KEY not set.")
@@ -164,14 +164,14 @@ def synthesize(text: str, language_code="hi-IN") -> bytes:
     buf = io.BytesIO()
     combined.export(buf, format="wav")
     return buf.getvalue()
-
-
+ 
+ 
 # ---------------------------------------------------------------------------
 # Streamlit UI
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="ClaimSaathi — Voice Claim Agent",
                    page_icon="🛡️", layout="wide")
-
+ 
 st.markdown("""
 <style>
   .main { background: #0f1117; }
@@ -184,19 +184,19 @@ st.markdown("""
   .stChatMessage { background: transparent; }
 </style>
 """, unsafe_allow_html=True)
-
+ 
 st.markdown('<p class="claim-title">🛡️ ClaimSaathi</p>', unsafe_allow_html=True)
 st.markdown('<p class="claim-sub">Voice-based insurance claim intake (FNOL) · '
             'speaks Hinglish & Indic languages · ASR → LLM → TTS</p>',
             unsafe_allow_html=True)
-
+ 
 # Session state
 if "claim_state" not in st.session_state:
     st.session_state.claim_state = {k: None for k in REQUIRED_FIELDS}
     st.session_state.history = []
     st.session_state.messages = []
     st.session_state.completed = False
-
+ 
 # Sidebar: status + controls
 with st.sidebar:
     st.subheader("⚙️ Setup")
@@ -205,12 +205,12 @@ with st.sidebar:
     st.write(f"{ok_groq} Groq key  ·  {ok_sarvam} Sarvam key")
     if not (GROQ_API_KEY and SARVAM_API_KEY):
         st.warning("Add GROQ_API_KEY and SARVAM_API_KEY in app Secrets to enable.")
-
+ 
     reply_language = st.selectbox(
         "Reply / voice language",
         ["hi-IN", "en-IN", "mr-IN", "bn-IN", "ta-IN", "te-IN",
          "kn-IN", "gu-IN", "ml-IN", "pa-IN"], index=0)
-
+ 
     st.divider()
     st.subheader("📊 Claim progress")
     cs = st.session_state.claim_state
@@ -224,36 +224,43 @@ with st.sidebar:
         else:
             st.markdown(f'<span class="pill pill-wait">… {FIELD_LABELS[k]}</span>',
                         unsafe_allow_html=True)
-
+ 
     esc = check_escalation(cs)
     if esc["escalate"]:
         st.error("🚩 Flagged for human adjuster:\n\n- " + "\n- ".join(esc["reasons"]))
-
+ 
     st.divider()
     if st.button("🔄 Start new claim"):
-        for key in ["claim_state", "history", "messages", "completed"]:
+        for key in ["claim_state", "history", "messages", "completed", "last_sig"]:
             st.session_state.pop(key, None)
+        # Advance the recorder key so a fresh, empty recorder is shown.
+        st.session_state.turn = st.session_state.get("turn", 0) + 1
         st.rerun()
-
+ 
 # Greeting (first load)
 if not st.session_state.messages:
     greeting = ("Namaste! Main ClaimSaathi hoon. Main aapka claim file karne mein "
                 "madad karungi. Kya aap mujhe apna policy number bata sakte hain?")
     st.session_state.messages.append({"role": "assistant", "text": greeting})
     st.session_state.history.append({"role": "assistant", "content": greeting})
-
+ 
 # Render conversation
 for m in st.session_state.messages:
     with st.chat_message("user" if m["role"] == "user" else "assistant"):
         st.write(m["text"])
         if m.get("audio"):
             st.audio(m["audio"], format="audio/wav", autoplay=m.get("autoplay", False))
-
+ 
 # Audio input (records in the browser; no extra libs)
+# A turn counter; changing the widget key forces a fresh, empty recorder each turn.
+if "turn" not in st.session_state:
+    st.session_state.turn = 0
+ 
 st.write("🎤 **Tap to record your answer, then stop:**")
 audio_value = st.audio_input("Record", label_visibility="collapsed",
+                             key=f"rec_{st.session_state.turn}",
                              disabled=not (GROQ_API_KEY and SARVAM_API_KEY))
-
+ 
 # Process a new recording
 if audio_value is not None and not st.session_state.completed:
     audio_bytes = audio_value.read()
@@ -266,33 +273,34 @@ if audio_value is not None and not st.session_state.completed:
                 user_text = transcribe(audio_bytes)
             st.session_state.messages.append({"role": "user", "text": user_text})
             st.session_state.history.append({"role": "user", "content": user_text})
-
+ 
             with st.spinner("Thinking…"):
                 result = llm_intake(user_text, st.session_state.claim_state,
                                     st.session_state.history)
             for k, v in (result.get("claim_data") or {}).items():
                 if k in st.session_state.claim_state and v not in (None, "", "null"):
                     st.session_state.claim_state[k] = v
-
+ 
             reply = result.get("spoken_reply", "")
             missing = [k for k, v in st.session_state.claim_state.items()
                        if v in (None, "", "null")]
             complete = bool(result.get("complete")) and not missing  # safety net
-
+ 
             with st.spinner("Generating voice…"):
                 reply_audio = synthesize(reply, reply_language)
-
+ 
             st.session_state.history.append({"role": "assistant", "content": reply})
             st.session_state.messages.append({"role": "assistant", "text": reply,
                                               "audio": reply_audio, "autoplay": True})
             if complete:
                 st.session_state.completed = True
+            st.session_state.turn += 1      # fresh recorder next turn
             st.rerun()
         except requests.HTTPError as e:
             st.error(f"API error: {e.response.status_code} — {e.response.text[:300]}")
         except Exception as e:
             st.error(f"Something went wrong: {e}")
-
+ 
 # Completion: show + download final claim
 if st.session_state.completed:
     st.success("✅ All details collected. Claim ready for processing.")
